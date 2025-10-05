@@ -3,6 +3,7 @@ from models.datamodel import Stocks
 from sqlalchemy import create_engine
 from sqlalchemy import text 
 engine = create_engine("postgresql+psycopg2://postgres:1234@localhost:5432/postgres") 
+from sockets import send_signal
 import pandas as pd
 def post_in_db(df,stock):
 
@@ -14,7 +15,7 @@ def post_in_db(df,stock):
     # Reorder columns to match table schema
     df = df[[
         "stock_name", "Date", "Open", "High", "Low", "Close", "Volume",
-        "shrt50", "long200", "Signal", "Position", "Portfolio"
+        "shrt50", "long200", "Signal", "Position", "Portfolio","PnL","Return_percent"
     ]]
 
     # Convert column names to lowercase to match SQLAlchemy class

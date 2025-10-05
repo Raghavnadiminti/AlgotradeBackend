@@ -4,6 +4,8 @@ from postdb import post_in_db
 from postdb import get_from_db_n
 import asyncio 
 import yfinance as yf
+from sockets import send_signal
+
 def moving_average_strategy(data):
 
     df=pd.DataFrame(data)
@@ -12,12 +14,18 @@ def moving_average_strategy(data):
     df['shrt50']=df['Close'].rolling(window=short_window).mean() 
     df['long200']=df['Close'].rolling(window=long_window).mean() 
     df['Signal'] = 0
-    df['Signal'][short_window:] = (df['shrt50'][short_window:] > df['long200'][short_window:]).astype(int)
+    df['Signal'] = 0  # initialize with zeros
+
+# Safe assignment starting from short_window
+    df.loc[df.index[short_window:], 'Signal'] = (
+        df.loc[df.index[short_window:], 'shrt50'] > df.loc[df.index[short_window:], 'long200']
+    ).astype(int)
     df['Position'] = df['Signal'].diff()
 
     return df 
 
-def backtesting(df, initial_cash=10000):
+
+def backtesting(df, initial_cash=1000000):
     cash = initial_cash
     position = 0
     df['Portfolio'] = 0.0  # total value of cash + stocks
@@ -25,34 +33,33 @@ def backtesting(df, initial_cash=10000):
     for idx, row in df.iterrows():
         # Buy signal
         if row['Position'] == 1:
-            # Buy as many shares as possible
-            if cash >= row['Close']:
-                position = cash // row['Close']
-                cash -= position * row['Close']
+            shares_to_buy = int(cash / row['Close'])
+            if shares_to_buy > 0:
+                cash -= shares_to_buy * row['Close']
+                position += shares_to_buy
 
         # Sell signal
         elif row['Position'] == -1 and position > 0:
             cash += position * row['Close']
             position = 0
 
-        # Portfolio = cash + value of stock held
+        # Portfolio value = cash + value of stock held
         df.at[idx, 'Portfolio'] = cash + position * row['Close']
 
-    # Final portfolio (already handled in loop, but safe)
+    # Final calculations
     final_value = cash + position * df['Close'].iloc[-1]
     profit = final_value - initial_cash
-    df['PnL'] = df['Portfolio'] - initial_cash
 
-    # Optional: percentage returns
-    df['Return_%'] = (df['PnL'] / initial_cash) * 100
+    
+    df['PnL'] = df['Portfolio'] - initial_cash
+    df['Return_percent'] = (df['PnL'] / initial_cash) * 100
 
     return df
 
 
 
-
-data=get_stock_data("BTC-USD")
-print(data)
+# data=get_stock_data("BTC-USD")
+# print(data)
 
 
 def live_to_historic_df(live_msg):
@@ -135,6 +142,8 @@ def message_handler(message):
     bdf=backtesting(mdf)
     pdf=bdf.tail(1)
     post_in_db(pdf,"BTC-USD")
+    json=pdf.to_json(orient='records')
+    send_signal(json)
     print(df2)
 
 async def livedata():
@@ -142,4 +151,3 @@ async def livedata():
         await ws.subscribe(["BTC-USD"])
         await ws.listen(message_handler)
 
-asyncio.run(livedata()) 
